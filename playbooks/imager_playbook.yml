@@ -1,0 +1,103 @@
+- hosts: us-west-2
+  remote_user: ubuntu
+  tasks:
+    - name: Update the Ubuntu system and services
+      apt: update_cache=yes
+      become: yes
+      become_method: sudo
+
+    - name: Install Basic Unix-level Services
+      apt: name={{ item }} state=latest
+      become: yes
+      become_method: sudo
+      with_items:
+        - gunicorn
+        - python3
+        - python3-pip
+        - python3.4-venv
+        - libtiff5-dev
+        - libjpeg8-dev
+        - zlib1g-dev
+        - libfreetype6-dev
+        - nginx
+        - git
+        - liblcms2-dev
+        - libwebp-dev
+        - tcl8.6-dev
+        - tk8.6-dev
+        - python-tk
+        - python-dev
+        - libpq-dev
+
+    - name: Clone the django imager app to the home directory
+      git: clone=yes repo=https://github.com/JSchatzman/django-imager dest=/home/ubuntu/django-imager version=deployment
+
+
+    - name: Create a virtual environment in the django imager app repo
+      command: python3 -m venv /home/ubuntu/ENV
+      become: yes
+      become_method: sudo
+
+    - name: Install gunicorn to the virtualenv
+      pip: virtualenv=/home/ubuntu/ENV/ name=gunicorn
+      become: yes
+      become_method: sudo
+
+    - name: Install the packages specified in requirements.pip to the venv
+      become: yes
+      become_method: sudo
+      pip: 
+        requirements: /home/ubuntu/django-imager/imagersite/requirements.pip
+        virtualenv: /home/ubuntu/ENV/
+
+    - name: Add environment variables
+      become: yes
+      become_method: sudo
+      shell: echo "export {{ item }}" >> /home/ubuntu/ENV/bin/activate
+      with_items:
+        - DATABASE_NAME="imagersite"
+        - USER_NAME="jordan"
+        - DB_PASSWORD="xxxxxxxx"
+        - HOST="imagersite.cjbeddm561zd.us-west-2.rds.amazonaws.com"
+        - PORT="5432"
+        - EMAIL_PASSWORD='xxxxxxxx'
+
+
+    - name: Register the old default file
+      stat: path=/etc/nginx/sites-available/default.old
+      register: default_stat
+
+    - name: Rename old nginx default file
+      command: mv /etc/nginx/sites-available/default /etc/nginx/sites-available/default.old
+      become: yes
+      become_method: sudo
+      when: not default_stat.stat.exists
+
+    - name: Allow access to media folder
+      become: yes
+      become_method: sudo
+      file:
+        path: /home/ubuntu/django-imager/imagersite/MEDIA
+        state: touch
+        mode: 0777
+
+    - name: Create new nginx configuration file
+      become: yes
+      become_method: sudo
+      copy: src=../simple_nginx_config.conf dest=/etc/nginx/sites-available/default
+      
+    - name: Create new django imager configuration file
+      become: yes
+      become_method: sudo
+      copy: src=../django-imager.conf dest=/etc/init/django-imager.conf 
+
+    - name: Restart nginx service
+      become: yes
+      become_method: sudo
+      service: name=nginx state=restarted
+
+    - name: Restart django imager service
+      become: yes
+      become_method: sudo
+      service: name=django-imager state=restarted
+
